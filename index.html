@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Recorder</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      text-align: center;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin: 10px;
+    }
+    #status {
+      margin-top: 20px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Audio Recorder</h1>
+  <p>マイク音声を録音し、Azure Functions APIに送信します。</p>
+  <button id="startBtn">録音開始</button>
+  <button id="stopBtn" disabled>録音停止</button>
+  <div id="status">ステータス: 待機中</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/recorder-js@1.0.0/dist/recorder.min.js"></script>
+  <script>
+    let audioContext;
+    let recorder;
+    let stream;
+
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const status = document.getElementById('status');
+
+    startBtn.addEventListener('click', async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioContext = new AudioContext();
+        const input = audioContext.createMediaStreamSource(stream);
+        recorder = new Recorder(input, { numChannels: 1 });
+        recorder.record();
+
+        status.textContent = "ステータス: 録音中...";
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+      } catch (error) {
+        console.error("マイクアクセスエラー: ", error);
+        status.textContent = "ステータス: マイクアクセスエラー";
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      recorder.stop();
+      recorder.exportWAV(async (blob) => {
+        const reader = new FileReader();
+        reader.readAsArrayBuffer(blob);
+        reader.onloadend = function () {
+          const arrayBuffer = reader.result;
+          // MP3変換 (ここにLame.jsを使った変換処理を実装)
+          const mp3Blob = blob; // 仮にWAVをそのまま送信する場合
+
+          uploadToAPI(mp3Blob);
+        };
+      });
+
+      stream.getTracks().forEach(track => track.stop());
+      status.textContent = "ステータス: 録音停止";
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    });
+
+    function uploadToAPI(mp3Blob) {
+      const formData = new FormData();
+      formData.append("file", mp3Blob, "audio.mp3");
+
+      fetch("https://your-function-endpoint.azurewebsites.net/api/process-audio", {
+        method: "POST",
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        console.log("サーバーレスポンス: ", data);
+        status.textContent = "ステータス: アップロード成功";
+      })
+      .catch(error => {
+        console.error("アップロードエラー: ", error);
+        status.textContent = "ステータス: アップロードエラー";
+      });
+    }
+  </script>
+</body>
+</html>
