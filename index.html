@@ -23,7 +23,7 @@
 </head>
 <body>
   <h1>Audio Recorder</h1>
-  <p>マイク音声を録音し、Azure Functions APIに送信します。</p>
+  <p>マイク音声を録音し、Azure Functions APIに送信します。MediaRecorder API</p>
   <button id="startBtn">録音開始</button>
   <button id="stopBtn" disabled>録音停止</button>
   <div id="status">ステータス: 待機中</div>
@@ -71,7 +71,7 @@
       const formData = new FormData();
       formData.append("file", audioBlob, "audio.webm");
 
-      fetch("funcrcvmp3totext.azurewebsites.net", {
+      fetch("https://funcrcvmp3totext-apim.azure-api.net", {
         method: "POST",
         body: formData
       })
