@@ -28,25 +28,29 @@
   <button id="stopBtn" disabled>録音停止</button>
   <div id="status">ステータス: 待機中</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/recorder-js@1.0.0/dist/recorder.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js"></script>
   <script>
-    let audioContext;
-    let recorder;
-    let stream;
-
+    let mediaRecorder;
+    let audioChunks = [];
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const status = document.getElementById('status');
 
     startBtn.addEventListener('click', async () => {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        audioContext = new AudioContext();
-        const input = audioContext.createMediaStreamSource(stream);
-        recorder = new Recorder(input, { numChannels: 1 });
-        recorder.record();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
 
+        mediaRecorder.ondataavailable = (event) => {
+          audioChunks.push(event.data);
+        };
+
+        mediaRecorder.onstop = () => {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          audioChunks = [];
+          uploadToAPI(audioBlob);
+        };
+
+        mediaRecorder.start();
         status.textContent = "ステータス: 録音中...";
         startBtn.disabled = true;
         stopBtn.disabled = false;
@@ -57,53 +61,15 @@
     });
 
     stopBtn.addEventListener('click', () => {
-      recorder.stop();
-      recorder.exportWAV((blob) => {
-        const reader = new FileReader();
-        reader.readAsArrayBuffer(blob);
-        reader.onloadend = function () {
-          const wavArrayBuffer = reader.result;
-
-          // WAV -> MP3 変換
-          const mp3Blob = convertToMP3(wavArrayBuffer);
-
-          // Azure Functions APIにアップロード
-          uploadToAPI(mp3Blob);
-        };
-      });
-
-      stream.getTracks().forEach(track => track.stop());
+      mediaRecorder.stop();
       status.textContent = "ステータス: 録音停止";
       startBtn.disabled = false;
       stopBtn.disabled = true;
     });
 
-    // WAV -> MP3 変換ロジック
-    function convertToMP3(wavArrayBuffer) {
-      const wav = new Int16Array(wavArrayBuffer);
-      const lame = new lamejs.Mp3Encoder(1, 44100, 128); // チャンネル数、サンプルレート、ビットレート
-      const mp3Data = [];
-      const samplesPerFrame = 1152;
-
-      for (let i = 0; i < wav.length; i += samplesPerFrame) {
-        const sampleChunk = wav.subarray(i, i + samplesPerFrame);
-        const mp3Buffer = lame.encodeBuffer(sampleChunk);
-        if (mp3Buffer.length > 0) {
-          mp3Data.push(mp3Buffer);
-        }
-      }
-
-      const mp3EndBuffer = lame.flush();
-      if (mp3EndBuffer.length > 0) {
-        mp3Data.push(mp3EndBuffer);
-      }
-
-      return new Blob(mp3Data, { type: "audio/mp3" });
-    }
-
-    function uploadToAPI(mp3Blob) {
+    function uploadToAPI(audioBlob) {
       const formData = new FormData();
-      formData.append("file", mp3Blob, "audio.mp3");
+      formData.append("file", audioBlob, "audio.webm");
 
       fetch("funcrcvmp3totext.azurewebsites.net", {
         method: "POST",
