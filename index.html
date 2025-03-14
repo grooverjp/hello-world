@@ -29,6 +29,7 @@
   <div id="status">ステータス: 待機中</div>
 
   <script src="https://cdn.jsdelivr.net/npm/recorder-js@1.0.0/dist/recorder.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js"></script>
   <script>
     let audioContext;
     let recorder;
@@ -57,14 +58,16 @@
 
     stopBtn.addEventListener('click', () => {
       recorder.stop();
-      recorder.exportWAV(async (blob) => {
+      recorder.exportWAV((blob) => {
         const reader = new FileReader();
         reader.readAsArrayBuffer(blob);
         reader.onloadend = function () {
-          const arrayBuffer = reader.result;
-          // MP3変換 (ここにLame.jsを使った変換処理を実装)
-          const mp3Blob = blob; // 仮にWAVをそのまま送信する場合
+          const wavArrayBuffer = reader.result;
 
+          // WAV -> MP3 変換
+          const mp3Blob = convertToMP3(wavArrayBuffer);
+
+          // Azure Functions APIにアップロード
           uploadToAPI(mp3Blob);
         };
       });
@@ -75,11 +78,34 @@
       stopBtn.disabled = true;
     });
 
+    // WAV -> MP3 変換ロジック
+    function convertToMP3(wavArrayBuffer) {
+      const wav = new Int16Array(wavArrayBuffer);
+      const lame = new lamejs.Mp3Encoder(1, 44100, 128); // チャンネル数、サンプルレート、ビットレート
+      const mp3Data = [];
+      const samplesPerFrame = 1152;
+
+      for (let i = 0; i < wav.length; i += samplesPerFrame) {
+        const sampleChunk = wav.subarray(i, i + samplesPerFrame);
+        const mp3Buffer = lame.encodeBuffer(sampleChunk);
+        if (mp3Buffer.length > 0) {
+          mp3Data.push(mp3Buffer);
+        }
+      }
+
+      const mp3EndBuffer = lame.flush();
+      if (mp3EndBuffer.length > 0) {
+        mp3Data.push(mp3EndBuffer);
+      }
+
+      return new Blob(mp3Data, { type: "audio/mp3" });
+    }
+
     function uploadToAPI(mp3Blob) {
       const formData = new FormData();
       formData.append("file", mp3Blob, "audio.mp3");
 
-      fetch("https://your-function-endpoint.azurewebsites.net/api/process-audio", {
+      fetch("funcrcvmp3totext.azurewebsites.net", {
         method: "POST",
         body: formData
       })
